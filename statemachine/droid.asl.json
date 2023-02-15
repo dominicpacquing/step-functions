@@ -1,0 +1,38 @@
+{
+    "Comment": "A state machine that does droid processing.",
+    "StartAt": "Validate droid",
+    "States": {
+        "Validate droid": {
+            "Type": "Task",
+            "Resource": "${DroidValidatorArn}",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 15,
+                    "MaxAttempts": 5,
+                    "BackoffRate": 1.5
+                }
+            ],
+            "ResultPath": "$.ValidateDroidResult",
+            "Next": "Process droid"
+        },
+        "Process droid": {
+            "Type": "Task",
+            "Resource": "${DroidProcessorArn}",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 1
+                }
+            ],
+            "ResultPath": "$.ProcessDroidResult",
+            "End": true
+        }
+    }
+}

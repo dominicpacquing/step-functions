@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  droid-app
+
+  Sample SAM Template for droid-app
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Tracing: Active
+  Api:
+    TracingEnabled: True
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  DroidStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/droid.asl.json
+      DefinitionSubstitutions:
+        DroidValidatorArn: !GetAtt DroidValidatorFunction.Arn
+        DroidProcessorArn: !GetAtt DroidProcessorFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DroidProcessorFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DroidValidatorFunction
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Role to provide access to S3
+      Policies:
+        - PolicyName: S3BucketAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - "*"
+
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Role to execute Step Functions
+      Policies:
+        - PolicyName: SFNExecute
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 'states:StartExecution'
+                Resource:
+                  - "*"
+
+  EventRuleUpload:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref S3Bucket
+          object:
+            key:
+              - prefix: droid/
+      Targets:
+        - Arn: !GetAtt
+            - DroidStateMachine
+            - Arn
+          Id: "start-droid-exec"
+          RoleArn: !GetAtt
+            - EventBridgeRole
+            - Arn
+
+  DroidValidatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/droid_validator/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaRole.Arn
+      Architectures:
+        - x86_64
+
+  DroidProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/droid_processor/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaRole.Arn
+      Architectures:
+        - x86_64
